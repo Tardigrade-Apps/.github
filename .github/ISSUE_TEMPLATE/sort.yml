@@ -1,0 +1,8 @@
+name: Some
+description: Something broken in the app — regression or defect
+title: "🐛 "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Report **observed behaviour** and **steps to reproduce**. Avoid proposing a root cause unless you have evidence.
