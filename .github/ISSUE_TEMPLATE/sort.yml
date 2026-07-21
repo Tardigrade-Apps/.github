@@ -1,8 +1,70 @@
-name: Some
+name: Bug
 description: Something broken in the app — regression or defect
 title: "🐛 "
+labels: ["type:bug"]
 body:
   - type: markdown
     attributes:
       value: |
         Report **observed behaviour** and **steps to reproduce**. Avoid proposing a root cause unless you have evidence.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Short description of the defect from the user's perspective.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What was expected to happen.
+    validations:
+      required: false
+
+  - type: upload
+    id: attachments
+    attributes:
+      label: Attachments
+      description: Screenshots, screen recordings, logs, or other files that help explain the bug.
+    validations:
+      required: false
+      accept: ".png,.jpg,.jpeg,.gif,.webp,.mp4,.mov,.webm,.log,.txt,.json,.zip"
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps on a release or debug build. Include test account / job ID if safe to share.
+      placeholder: |
+        1. Log in as …
+        2. Navigate to …
+        3. Tap …
+        4. Observe …
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: environment
+    attributes:
+      label: Environment
+      description: Select all that apply. 
+      options:
+        - label: iOS
+        - label: Android
+        - label: Production
+        - label: Staging
+        - label: Debug
+    validations:
+      required: false
+
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: Settings → About, TestFlight/Play build number, or Bitrise build ID.
+      placeholder: e.g. 4.12.0 (1234)
+    validations:
+      required: false
