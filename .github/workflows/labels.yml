@@ -1,0 +1,102 @@
+# Canonical org labels — must match requirements §6.5
+# colour: 6 hex digits, no leading #
+
+- name: security:vulnerability
+  color: "B60205"
+  description: Known or suspected security vulnerability
+- name: security:hardening
+  color: "D93F0B"
+  description: Security hardening / defence-in-depth work
+- name: area:work-orders
+  color: "1D76DB"
+  description: Work orders
+- name: area:contractors
+  color: "1D76DB"
+  description: Contractors
+- name: area:compliance
+  color: "1D76DB"
+  description: Compliance
+- name: area:inspections
+  color: "1D76DB"
+  description: Inspections
+- name: area:projects
+  color: "1D76DB"
+  description: Projects
+- name: area:awaabs-law
+  color: "1D76DB"
+  description: Awaab's Law
+- name: area:diagnostics
+  color: "1D76DB"
+  description: Diagnostics
+- name: area:users-access
+  color: "1D76DB"
+  description: Users & access
+- name: area:roles-permissions
+  color: "1D76DB"
+  description: Roles & permissions
+- name: area:locations
+  color: "1D76DB"
+  description: Locations
+- name: area:assets
+  color: "1D76DB"
+  description: Assets
+- name: area:payments
+  color: "1D76DB"
+  description: Payments
+- name: area:planned-maintenance
+  color: "1D76DB"
+  description: Planned maintenance
+- name: area:voids
+  color: "1D76DB"
+  description: Voids
+- name: area:fsm
+  color: "1D76DB"
+  description: Field service management
+- name: area:tasks
+  color: "1D76DB"
+  description: Tasks
+- name: area:insights
+  color: "1D76DB"
+  description: Insights / reporting
+- name: area:mobile-field-app
+  color: "1D76DB"
+  description: Mobile field app
+- name: area:mobile-inspections-app
+  color: "1D76DB"
+  description: Mobile inspections app
+- name: area:marketplace
+  color: "1D76DB"
+  description: Marketplace
+- name: area:open-framework
+  color: "1D76DB"
+  description: Open Framework
+- name: area:verifications
+  color: "1D76DB"
+  description: Verifications
+- name: regression
+  color: "D93F0B"
+  description: Regression from previous behaviour
+- name: bug-form
+  color: "E99695"
+  description: Raised via bug-form intake
+- name: research
+  color: "5319E7"
+  description: Research / investigation tag
+- name: tech-debt
+  color: "BFDADC"
+  description: Technical debt
+- name: documentation
+  color: "0075CA"
+  description: Documentation
+- name: accessibility
+  color: "0E8A16"
+  description: Accessibility
+- name: performance
+  color: "FBCA04"
+  description: Performance
+- name: dependency
+  color: "CFD3D7"
+  description: Dependency upgrade / change
+- name: gdpr
+  color: "6F42C1"
+  description: GDPR / privacy
