@@ -24,7 +24,7 @@ jobs:
           import os, subprocess, yaml
 
           org = os.environ["ORG"]
-          with open(".github/labels.yml", encoding="utf-8") as f:
+          with open("labels/labels.yml", encoding="utf-8") as f:
               labels = yaml.safe_load(f)
 
           repos = subprocess.check_output(
