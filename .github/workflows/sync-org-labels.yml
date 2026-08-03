@@ -17,7 +17,7 @@ jobs:
       - name: Create or update labels on every non-archived repo
         env:
           GH_TOKEN: ${{ secrets.LABEL_SYNC_TOKEN }}
-          ORG: plentific
+          ORG: Tardigrade-Apps
         run: |
           set -euo pipefail
           python3 <<'PY'
