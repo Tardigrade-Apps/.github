@@ -1,31 +1,37 @@
-# Copy to: <host-repo>/.github/workflows/sync-org-labels.yml
+# Sync org labels
+
+# Runs on: plentific/canonical (adhoc).
+# Source: delivery/github-org-standards/labels.yml
+# Requires secret ORG_STANDARDS_SYNC_TOKEN (fine-grained PAT: Issues R/W, Metadata R; all repos).
+
 name: Sync org labels
 
 on:
   workflow_dispatch:
 
 jobs:
-  sync:
+  sync-labels:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout canonical
         uses: actions/checkout@v4
 
       - name: Install PyYAML
         run: pip install pyyaml
 
-      - name: Create or update labels on every non-archived repo
+      - name: Sync labels to all non-archived repos
         env:
-          GH_TOKEN: ${{ secrets.LABEL_SYNC_TOKEN }}
-          ORG: Tardigrade-Apps
+          GH_TOKEN: ${{ secrets.ORG_STANDARDS_SYNC_TOKEN }}
+          ORG: plentific
+          STANDARDS_DIR: delivery/github-org-standards
         run: |
           set -euo pipefail
           python3 <<'PY'
           import os, subprocess, yaml
+          from pathlib import Path
 
           org = os.environ["ORG"]
-          with open(".github/labels.yml", encoding="utf-8") as f:
-              labels = yaml.safe_load(f)
+          labels_path = Path(os.environ["STANDARDS_DIR"]) / "labels.yml"
 
           repos = subprocess.check_output(
               [
@@ -37,7 +43,9 @@ jobs:
               text=True,
           ).splitlines()
 
+          labels = yaml.safe_load(labels_path.read_text(encoding="utf-8"))
           print(f"Repos: {len(repos)}; labels: {len(labels)}")
+
           for repo in repos:
               print(f"==> {repo}")
               for item in labels:
@@ -51,5 +59,6 @@ jobs:
                       ],
                       check=True,
                   )
+
           print("Done.")
           PY
