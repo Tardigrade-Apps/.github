@@ -2,7 +2,9 @@
 
 # Runs on: plentific/canonical (adhoc).
 # Source: delivery/github-org-standards/ISSUE_TEMPLATE/
-# Requires secret ORG_STANDARDS_SYNC_TOKEN (fine-grained PAT: Contents R/W, Metadata R; all repos).
+# Opens a PR per repo; does not commit to the default branch.
+# Requires secret ORG_STANDARDS_SYNC_TOKEN (fine-grained PAT:
+# Contents R/W, Pull requests R/W, Metadata R; all repos).
 
 name: Sync org issue templates
 
@@ -16,7 +18,7 @@ jobs:
       - name: Checkout canonical
         uses: actions/checkout@v4
 
-      - name: Sync issue templates to all non-archived repos
+      - name: Open template-sync PRs on all non-archived repos
         env:
           GH_TOKEN: ${{ secrets.LABEL_SYNC_TOKEN }}
           ORG: Tardigrade-Apps
@@ -24,14 +26,22 @@ jobs:
         run: |
           set -euo pipefail
           python3 <<'PY'
-          import base64, json, os, subprocess, urllib.error, urllib.request
+          import base64, json, os, subprocess, urllib.error, urllib.parse, urllib.request
           from pathlib import Path
 
           org = os.environ["ORG"]
           token = os.environ["GH_TOKEN"]
           templates_dir = Path(os.environ["STANDARDS_DIR"]) / "ISSUE_TEMPLATE"
+          branch = "chore/sync-org-issue-templates"
+          pr_title = "chore: sync org issue templates from canonical"
+          pr_body = (
+              "Automated sync from `plentific/canonical` "
+              "(`delivery/github-org-standards/ISSUE_TEMPLATE/`).\n\n"
+              "Do not edit these files here; change them in canonical and "
+              "re-run **Sync org issue templates**."
+          )
 
-          def gh_api(method, path, data=None):
+          def gh_api(method, path, data=None, ok_codes=()):
               req = urllib.request.Request(
                   f"https://api.github.com{path}",
                   data=None if data is None else json.dumps(data).encode(),
@@ -49,6 +59,8 @@ jobs:
                       return json.loads(body) if body else {}
               except urllib.error.HTTPError as e:
                   err = e.read().decode()
+                  if e.code in ok_codes:
+                      return None
                   raise RuntimeError(f"{method} {path} -> {e.code}: {err}") from e
 
           repos = subprocess.check_output(
@@ -66,22 +78,88 @@ jobs:
 
           for repo in repos:
               print(f"==> {repo}")
+              info = gh_api("GET", f"/repos/{repo}")
+              default_branch = info["default_branch"]
+              ref = gh_api("GET", f"/repos/{repo}/git/ref/heads/{default_branch}")
+              base_sha = ref["object"]["sha"]
+              base_commit = gh_api("GET", f"/repos/{repo}/git/commits/{base_sha}")
+
+              tree_items = []
               for path in template_files:
                   rel = f".github/ISSUE_TEMPLATE/{path.name}"
-                  content_b64 = base64.b64encode(path.read_bytes()).decode()
-                  api_path = f"/repos/{repo}/contents/{rel}"
-                  payload = {
-                      "message": f"chore: sync org issue template {path.name} from canonical",
-                      "content": content_b64,
-                  }
-                  try:
-                      existing = gh_api("GET", api_path)
-                      payload["sha"] = existing["sha"]
-                  except RuntimeError as e:
-                      if "404" not in str(e):
-                          raise
-                  gh_api("PUT", api_path, payload)
-                  print(f"    wrote {rel}")
+                  local = path.read_bytes()
+                  encoded = urllib.parse.quote(rel, safe="/")
+                  existing = gh_api(
+                      "GET",
+                      f"/repos/{repo}/contents/{encoded}?ref={urllib.parse.quote(default_branch)}",
+                      ok_codes=(404,),
+                  )
+                  if existing is not None:
+                      remote = base64.b64decode(existing["content"])
+                      if remote == local:
+                          continue
+                  tree_items.append(
+                      {
+                          "path": rel,
+                          "mode": "100644",
+                          "type": "blob",
+                          "content": local.decode("utf-8"),
+                      }
+                  )
+
+              if not tree_items:
+                  print("    skip (already in sync)")
+                  continue
+
+              new_tree = gh_api(
+                  "POST",
+                  f"/repos/{repo}/git/trees",
+                  {"base_tree": base_commit["tree"]["sha"], "tree": tree_items},
+              )
+              new_commit = gh_api(
+                  "POST",
+                  f"/repos/{repo}/git/commits",
+                  {
+                      "message": pr_title,
+                      "tree": new_tree["sha"],
+                      "parents": [base_sha],
+                  },
+              )
+              commit_sha = new_commit["sha"]
+
+              updated = gh_api(
+                  "PATCH",
+                  f"/repos/{repo}/git/refs/heads/{branch}",
+                  {"sha": commit_sha, "force": True},
+                  ok_codes=(404,),
+              )
+              if updated is None:
+                  gh_api(
+                      "POST",
+                      f"/repos/{repo}/git/refs",
+                      {"ref": f"refs/heads/{branch}", "sha": commit_sha},
+                  )
+
+              owner = repo.split("/")[0]
+              pulls = gh_api(
+                  "GET",
+                  f"/repos/{repo}/pulls?head={urllib.parse.quote(f'{owner}:{branch}')}&state=open",
+              )
+              if pulls:
+                  print(f"    updated PR {pulls[0]['html_url']}")
+                  continue
+
+              pr = gh_api(
+                  "POST",
+                  f"/repos/{repo}/pulls",
+                  {
+                      "title": pr_title,
+                      "head": branch,
+                      "base": default_branch,
+                      "body": pr_body,
+                  },
+              )
+              print(f"    opened PR {pr['html_url']}")
 
           print("Done.")
           PY
