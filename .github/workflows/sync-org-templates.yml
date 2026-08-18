@@ -127,17 +127,23 @@ jobs:
               )
               commit_sha = new_commit["sha"]
 
-              updated = gh_api(
-                  "PATCH",
+              # GitHub returns 422 (not 404) when PATCHing a missing ref.
+              existing_ref = gh_api(
+                  "GET",
                   f"/repos/{repo}/git/refs/heads/{branch}",
-                  {"sha": commit_sha, "force": True},
                   ok_codes=(404,),
               )
-              if updated is None:
+              if existing_ref is None:
                   gh_api(
                       "POST",
                       f"/repos/{repo}/git/refs",
                       {"ref": f"refs/heads/{branch}", "sha": commit_sha},
+                  )
+              else:
+                  gh_api(
+                      "PATCH",
+                      f"/repos/{repo}/git/refs/heads/{branch}",
+                      {"sha": commit_sha, "force": True},
                   )
 
               owner = repo.split("/")[0]
@@ -163,3 +169,4 @@ jobs:
 
           print("Done.")
           PY
+
