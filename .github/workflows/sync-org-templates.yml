@@ -1,10 +1,10 @@
 # Sync org issue templates
-
-# Runs on: plentific/canonical (adhoc).
-# Source: delivery/github-org-standards/ISSUE_TEMPLATE/
-# Opens a PR per repo; does not commit to the default branch.
-# Requires secret ORG_STANDARDS_SYNC_TOKEN (fine-grained PAT:
-# Contents R/W, Pull requests R/W, Metadata R; all repos).
+#
+# Adhoc: opens (or updates) one PR per non-archived plentific repo with
+# delivery/github-org-standards/ISSUE_TEMPLATE/*.yml — never writes the
+# default branch. IT notifies engineering to merge; nothing auto-merges.
+# Secret: ORG_STANDARDS_SYNC_TOKEN
+#   (Contents R/W, Pull requests R/W, Metadata R; all repos).
 
 name: Sync org issue templates
 
@@ -63,110 +63,146 @@ jobs:
                       return None
                   raise RuntimeError(f"{method} {path} -> {e.code}: {err}") from e
 
-          repos = subprocess.check_output(
-              [
-                  "gh", "repo", "list", org,
-                  "--no-archived", "--limit", "1000",
-                  "--json", "nameWithOwner",
-                  "-q", ".[].nameWithOwner",
-              ],
-              text=True,
-          ).splitlines()
+          # Forks and mirrors track an upstream; empty repos have no default-branch
+          # ref to base a PR on (the API returns 409 there).
+          listed = json.loads(
+              subprocess.check_output(
+                  [
+                      "gh", "repo", "list", org,
+                      "--no-archived", "--limit", "1000",
+                      "--json", "nameWithOwner,isEmpty,isFork,isMirror",
+                  ],
+                  text=True,
+              )
+          )
+          repos, skipped = [], []
+          for item in listed:
+              name = item["nameWithOwner"]
+              if item.get("isEmpty"):
+                  skipped.append((name, "empty repository"))
+              elif item.get("isFork"):
+                  skipped.append((name, "fork"))
+              elif item.get("isMirror"):
+                  skipped.append((name, "mirror"))
+              else:
+                  repos.append(name)
 
           template_files = sorted(templates_dir.glob("*.yml"))
-          print(f"Repos: {len(repos)}; templates: {len(template_files)}")
+          print(f"Repos: {len(repos)}; skipped: {len(skipped)}; templates: {len(template_files)}")
+
+          failures = []
 
           for repo in repos:
               print(f"==> {repo}")
-              info = gh_api("GET", f"/repos/{repo}")
-              default_branch = info["default_branch"]
-              ref = gh_api("GET", f"/repos/{repo}/git/ref/heads/{default_branch}")
-              base_sha = ref["object"]["sha"]
-              base_commit = gh_api("GET", f"/repos/{repo}/git/commits/{base_sha}")
+              try:
+                  info = gh_api("GET", f"/repos/{repo}")
+                  default_branch = info["default_branch"]
+                  ref = gh_api("GET", f"/repos/{repo}/git/ref/heads/{default_branch}")
+                  base_sha = ref["object"]["sha"]
+                  base_commit = gh_api("GET", f"/repos/{repo}/git/commits/{base_sha}")
 
-              tree_items = []
-              for path in template_files:
-                  rel = f".github/ISSUE_TEMPLATE/{path.name}"
-                  local = path.read_bytes()
-                  encoded = urllib.parse.quote(rel, safe="/")
-                  existing = gh_api(
+                  # Only include files that differ from the default branch.
+                  tree_items = []
+                  for path in template_files:
+                      rel = f".github/ISSUE_TEMPLATE/{path.name}"
+                      local = path.read_bytes()
+                      encoded = urllib.parse.quote(rel, safe="/")
+                      existing = gh_api(
+                          "GET",
+                          f"/repos/{repo}/contents/{encoded}?ref={urllib.parse.quote(default_branch)}",
+                          ok_codes=(404,),
+                      )
+                      if existing is not None:
+                          remote = base64.b64decode(existing["content"])
+                          if remote == local:
+                              continue
+                      tree_items.append(
+                          {
+                              "path": rel,
+                              "mode": "100644",
+                              "type": "blob",
+                              "content": local.decode("utf-8"),
+                          }
+                      )
+
+                  if not tree_items:
+                      print("    skip (already in sync)")
+                      continue
+
+                  new_tree = gh_api(
+                      "POST",
+                      f"/repos/{repo}/git/trees",
+                      {"base_tree": base_commit["tree"]["sha"], "tree": tree_items},
+                  )
+                  new_commit = gh_api(
+                      "POST",
+                      f"/repos/{repo}/git/commits",
+                      {
+                          "message": pr_title,
+                          "tree": new_tree["sha"],
+                          "parents": [base_sha],
+                      },
+                  )
+                  commit_sha = new_commit["sha"]
+
+                  # Create branch if missing; otherwise force-update (re-runs reuse it).
+                  # Missing refs return 404 on GET — do not PATCH first (that is 422).
+                  existing_ref = gh_api(
                       "GET",
-                      f"/repos/{repo}/contents/{encoded}?ref={urllib.parse.quote(default_branch)}",
+                      f"/repos/{repo}/git/refs/heads/{branch}",
                       ok_codes=(404,),
                   )
-                  if existing is not None:
-                      remote = base64.b64decode(existing["content"])
-                      if remote == local:
-                          continue
-                  tree_items.append(
-                      {
-                          "path": rel,
-                          "mode": "100644",
-                          "type": "blob",
-                          "content": local.decode("utf-8"),
-                      }
+                  if existing_ref is None:
+                      gh_api(
+                          "POST",
+                          f"/repos/{repo}/git/refs",
+                          {"ref": f"refs/heads/{branch}", "sha": commit_sha},
+                      )
+                  else:
+                      gh_api(
+                          "PATCH",
+                          f"/repos/{repo}/git/refs/heads/{branch}",
+                          {"sha": commit_sha, "force": True},
+                      )
+
+                  # Reuse open PR on this head; otherwise open a new one.
+                  owner = repo.split("/")[0]
+                  pulls = gh_api(
+                      "GET",
+                      f"/repos/{repo}/pulls?head={urllib.parse.quote(f'{owner}:{branch}')}&state=open",
                   )
+                  if pulls:
+                      print(f"    updated PR {pulls[0]['html_url']}")
+                      continue
 
-              if not tree_items:
-                  print("    skip (already in sync)")
-                  continue
-
-              new_tree = gh_api(
-                  "POST",
-                  f"/repos/{repo}/git/trees",
-                  {"base_tree": base_commit["tree"]["sha"], "tree": tree_items},
-              )
-              new_commit = gh_api(
-                  "POST",
-                  f"/repos/{repo}/git/commits",
-                  {
-                      "message": pr_title,
-                      "tree": new_tree["sha"],
-                      "parents": [base_sha],
-                  },
-              )
-              commit_sha = new_commit["sha"]
-
-              # GitHub returns 422 (not 404) when PATCHing a missing ref.
-              existing_ref = gh_api(
-                  "GET",
-                  f"/repos/{repo}/git/refs/heads/{branch}",
-                  ok_codes=(404,),
-              )
-              if existing_ref is None:
-                  gh_api(
+                  pr = gh_api(
                       "POST",
-                      f"/repos/{repo}/git/refs",
-                      {"ref": f"refs/heads/{branch}", "sha": commit_sha},
+                      f"/repos/{repo}/pulls",
+                      {
+                          "title": pr_title,
+                          "head": branch,
+                          "base": default_branch,
+                          "body": pr_body,
+                      },
                   )
-              else:
-                  gh_api(
-                      "PATCH",
-                      f"/repos/{repo}/git/refs/heads/{branch}",
-                      {"sha": commit_sha, "force": True},
-                  )
+                  print(f"    opened PR {pr['html_url']}")
+              except Exception as e:
+                  # One bad repo must not stop the rollout; report all at the end.
+                  print(f"    FAILED: {e}")
+                  failures.append((repo, str(e)))
 
-              owner = repo.split("/")[0]
-              pulls = gh_api(
-                  "GET",
-                  f"/repos/{repo}/pulls?head={urllib.parse.quote(f'{owner}:{branch}')}&state=open",
-              )
-              if pulls:
-                  print(f"    updated PR {pulls[0]['html_url']}")
-                  continue
+          for name, reason in skipped:
+              print(f"skipped {name} ({reason})")
 
-              pr = gh_api(
-                  "POST",
-                  f"/repos/{repo}/pulls",
-                  {
-                      "title": pr_title,
-                      "head": branch,
-                      "base": default_branch,
-                      "body": pr_body,
-                  },
-              )
-              print(f"    opened PR {pr['html_url']}")
+          if failures:
+              print(f"\nCompleted with {len(failures)} failure(s):")
+              for name, reason in failures:
+                  print(f"  {name}: {reason}")
+              raise SystemExit(1)
 
           print("Done.")
           PY
+
+
+
 
